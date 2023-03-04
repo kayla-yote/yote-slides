@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html>
+   <head>
+      <meta charset=utf-8>
+   </head>
+   <body>
+      <style>
+* {
+   !box-sizing: border-box;
+}
+#e_display {
+   !border: solid 1px green;
+   width: 100%;
+   height: 100%;
+   max-width: inherit;
+   max-height: inherit;
+}
+body {
+   font-family: sans-serif;
+   margin: 0;
+   width: 100vw;
+   height: 100vh;
+   max-width: 100vw;
+   max-height: 100vh;
+   background-color: #333;
+}
+#e_header {
+   padding: 8px;
+}
+      </style>
+      <div id=e_header>
+         List file:<input id=e_list_file type=file>
+         <br>
+         <span id=e_slides_info>0 slides loaded</span>
+         <br>
+         <ol id=e_slides_links>
+           <li>1: foo.jpg
+           <li>2: bar.mp4
+           <li>3: tac.html
+         </ol>
+         <hr>
+      </div>
+      <div id=e_display></div>
+      <script>
+
+function file_as_text(file) {
+   const fr = new FileReader();
+   return new Promise((yes, no) => {
+      fr.onloadend = () => {
+         if (fr.error) {
+            no(fr.error);
+         } else {
+            yes(fr.result);
+         }
+      };
+      fr.readAsText(file);
+   });
+}
+
+const G = {};
+
+G.PROMISE_NEXT_ID = async () => 0;
+G.URL_LIST = null;
+
+async function animate_fade_in_out(elem, fade_ms, show_ms) {
+   elem.animate({
+      opacity: [0, 1],
+   }, {
+      delay: 0,
+      duration: fade_ms,
+   });
+   const anim = elem.animate({
+      opacity: [1, 0],
+   }, {
+      delay: fade_ms+show_ms,
+      duration: fade_ms,
+   });
+   await anim.finished();
+}
+
+async function animate_transform(elem, from, to, ms) {
+   const anim = elem.animate({
+      transform: [from, to],
+   }, ms);
+   await anim.finished();
+}
+
+function umod(val, div) {
+   if (val < 0) {
+      val = div - val;
+   }
+   val = val % div;
+   return val;
+}
+
+function Slideshow(url_list) {
+   this.pos = 0;
+   this.cache = {};
+   this.load = async function(i) {
+      i = umod(i, url_list.length);
+      if (!this.cache[i]) {
+         const img = document.createElement('img');
+         img.src = url;
+         await img.decode();
+         this.cache[i] = img;
+      }
+      return this.cache[i];
+   }
+}
+
+async function show_slide(parent, url) {
+   const img = document.createElement('img');
+   img.src = url;
+   await img.decode();
+   parent.appendChild(img);
+   img.style.opacity = 0;
+   
+   const angle = Math.random();
+   const dist = PAN_DIST_MIN + Math.random() * (PAN_DIST_MAX - PAN_DIST_MIN);
+   const to = [
+      dist * Math.cos(2 * Math.PI * angle),
+      dist * Math.sin(2 * Math.PI * angle),
+   ];
+   const from = to.map(x => -x);
+   
+   const as_translate = arr => 'translate(' + arr.map(x => x + PAN_DIST_UNIT).join(', ') + ')';
+   
+   await Promise.all([
+      animate_fade_in_out(img, FADE_MS, SHOW_MS),
+      animate_transform(img,
+         as_translate(from),
+         as_translate(to), 
+         FADE_MS+SHOW_MS+FADE_MS),
+   ]);
+   parent.removeChild(img);
+}
+
+/*
+MVP:
+* Non-interactive
+* Non-configurable
+* No fade
+* Just window-filling images
+
+for i in 0.. :
+   await load(i)
+   clear
+   show i
+   await timeout Nms
+*/
+
+function remove_children(elem) {
+   while (elem.firstChild) {
+      elem.removeChild(elem.firstChild);
+   }
+}
+
+function add_child_tag(parent, tag) {
+   return parent.appendChild(document.createElement(tag));
+}
+
+SLIDE_DUR_MS = 3000;
+DEFAULT_LIST_URL = '-list.txt';
+
+async function run_slides(url_list, parent_elem) {
+   console.log('run_slides', ...arguments);
+   e_slides_info.textContent = `${url_list.length} slides: `;
+   
+   setTimeout(() => {
+      e_header.style.display = 'none';
+   }, SLIDE_DUR_MS*1.5);
+   
+   remove_children(e_slides_links);
+   for (const url of url_list) {
+      const li = add_child_tag(e_slides_links, 'li');
+      li.textContent = url;
+   }
+   
+   let i = -1;
+   while (true) {
+      i += 1;
+      i = umod(i, url_list.length);
+      
+      // await load
+      const url = url_list[i];
+      const img = document.createElement('img');
+      img.src = url;
+      await img.decode();
+      
+      // clear
+      while (parent_elem.firstChild) {
+         parent_elem.removeChild(parent_elem.firstChild);
+      }
+      
+      // show
+      //const aspect_ratio = img.naturalWidth / img.naturalHeight;
+      //img.style.aspectRatio = aspect_ratio;
+      img.style.width = '100%';
+      img.style.height = '100%';
+      img.style.objectFit = 'contain';
+      //img.style.objectPosition: 'center';
+      //img.style.margin = 'auto';
+      
+      parent_elem.appendChild(img);
+      
+      SLIDE_DUR_MS.defined;
+      await new Promise(go => setTimeout(go, SLIDE_DUR_MS));
+      
+      continue;
+   }
+}
+/*
+const KEYCODE = {
+   LEFT_ARROW: 
+
+document.addEventListener('keydown', e => {
+   switch (e.key) {
+   case "ArrowLeft":
+   case "ArrowRight":
+});
+*/
+/*
+async function load_list_file(file) {
+   let slides = await file_as_text(eUpload.files[0]);
+   slides = slides.split('\n');
+   
+   run_slides(url_list);
+}
+*/
+(async () => {
+   if (!DEFAULT_LIST_URL) return;
+   const f = await fetch(DEFAULT_LIST_URL);
+   let text = await f.text();
+   text = text.replace('\r', '');
+   let list = text.split('\n');
+   list = list.filter(x => x);
+   run_slides(list, e_display);
+})();
+/*
+e_list_file.addEventListener('input', async () => {
+   if (!e_list_file.files.length)
+      return;
+     
+   if (SLIDESSHOW) {
+      SLIDESSHOW.stop();
+      SLIDESSHOW = null;
+   }
+   
+   
+   load_list_file(e_list_file.files[0]);
+});
+*/
+
+e_display.addEventListener('click', () => {
+   if (e_header.style.display == 'block') {
+      e_header.style.display = 'none';
+   } else {
+      e_header.style.display = 'block';
+   }
+});
+      </script>
+   </body>
+</html>
