@@ -196,6 +196,11 @@ document.addEventListener('keydown', async (e) => {
 function parse_url_list(text) {
    text = text.replace('\r', '');
    let list = text.split('\n');
+   list = list.map(x => {
+      x = x.trim();
+      if (x.startsWith('#')) return '';
+      return x;
+   });
    list = list.filter(x => {
       if (!x) return false;
       if (x.includes('.txt')) return false;
