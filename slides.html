@@ -159,8 +159,10 @@ function add_child_tag(parent, tag) {
    return parent.appendChild(document.createElement(tag));
 }
 
-SLIDE_DUR_MS = 3000;
-DEFAULT_LIST_URL = '-list.txt';
+SLIDE_DUR_MS = 10 * 1000;
+DEFAULT_LIST_URL = 'slides/list.txt';
+
+CUR_ID = -1;
 
 async function run_slides(url_list, parent_elem) {
    console.log('run_slides', ...arguments);
@@ -168,7 +170,7 @@ async function run_slides(url_list, parent_elem) {
    
    setTimeout(() => {
       e_header.style.display = 'none';
-   }, SLIDE_DUR_MS*1.5);
+   }, 1500);
    
    remove_children(e_slides_links);
    for (const url of url_list) {
@@ -176,13 +178,13 @@ async function run_slides(url_list, parent_elem) {
       li.textContent = url;
    }
    
-   let i = -1;
    while (true) {
-      i += 1;
-      i = umod(i, url_list.length);
+      CUR_ID += 1;
+      CUR_ID = umod(CUR_ID, url_list.length);
       
       // await load
-      const url = url_list[i];
+      const url = url_list[CUR_ID];
+      console.log({url});
       const img = document.createElement('img');
       img.src = url;
       await img.decode();
@@ -209,16 +211,18 @@ async function run_slides(url_list, parent_elem) {
       continue;
    }
 }
-/*
-const KEYCODE = {
-   LEFT_ARROW: 
 
 document.addEventListener('keydown', e => {
    switch (e.key) {
    case "ArrowLeft":
+      CUR_ID -= 1;
+      break;
    case "ArrowRight":
+      CUR_ID += 1;
+      break;
+   }
 });
-*/
+
 /*
 async function load_list_file(file) {
    let slides = await file_as_text(eUpload.files[0]);
@@ -234,6 +238,8 @@ async function load_list_file(file) {
    text = text.replace('\r', '');
    let list = text.split('\n');
    list = list.filter(x => x);
+   list = list.filter(x => !x.includes('.txt'));
+   list = list.filter(x => !x.includes('.mp4'));
    run_slides(list, e_display);
 })();
 /*
