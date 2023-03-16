@@ -6,8 +6,12 @@
 
 import http.server
 import os
+import socket
 
 from functools import partial
+
+
+SHOW_URLS = True
 
 
 class NoCacheRequestHandler(http.server.SimpleHTTPRequestHandler):
@@ -37,5 +41,31 @@ if __name__ == '__main__':
     handler_class = partial(NoCacheRequestHandler, directory=args.directory)
 
     server = http.server.ThreadingHTTPServer((args.bind, args.port), handler_class)
-    print('Serving ThreadingHTTPServer for', args, '...')
+    print('Serving ThreadingHTTPServer for', args)
+
+    if args.bind == 'localhost':
+        hostlist = [(args.bind,args.port,'  (valid on this computer only)')]
+    else:
+        fqdn = socket.getfqdn(args.bind)
+        #print('fqdn', fqdn)
+        for (_,_,_,_,(addr,port,*_)) in socket.getaddrinfo(fqdn, args.port):
+            #print('addr', addr)
+            (hostname, aliaslist, ipaddrlist) = socket.gethostbyaddr(addr)
+            hostlist = [hostname, *aliaslist, *ipaddrlist]
+            hostlist = [(x,args.port,'') for x in hostlist]
+
+    if SHOW_URLS:
+        for (host,port,note) in hostlist:
+            if port == 80:
+                port = ''
+            else:
+                port = f':{port}'
+
+            host2 = host.removesuffix('.localdomain')
+            if host2 != host:
+                print(f'   http://{host2}{port}/{note}')
+
+            print(f'   http://{host}{port}/{note}')
+
+    print('')
     server.serve_forever()
