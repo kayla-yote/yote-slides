@@ -162,7 +162,10 @@ async function set_slide(id) {
    // Set next_slide_time first in case anything goes wrong, so that we continue
    // to the next slide.
    SLIDE_DUR_MS.defined;
-   G.next_slide_time = performance.now() + SLIDE_DUR_MS;
+   function reset_next_slide_time() {
+      G.next_slide_time = performance.now() + SLIDE_DUR_MS;
+   }
+   reset_next_slide_time();
 
    // -
 
@@ -202,12 +205,13 @@ async function set_slide(id) {
             console.warn(`Skipping failing url '${url}':`, e);
             elem = null;
          }
-         break;W
+         break;
       default:
          console.warn(`Skipping file ext '${ext}' for ${url}...`);
          break;
       }
       if (!elem) {
+         reset_next_slide_time(); // Keep resetting if skipping
          id += 1;
          continue;
       }
