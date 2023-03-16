@@ -26,6 +26,13 @@ body {
 }
 #e_header {
    padding: 8px;
+   background-color: #555;
+}
+#e_slides_info {
+   background-color: #252;
+}
+#e_slides_links {
+   background-color: #555;
 }
       </style>
       <div id=e_header>
@@ -137,6 +144,18 @@ const G = {
    slide_id: 1, // one-based
 };
 
+const MEDIA_TYPE_BY_FILE_EXT = {
+   '.gif': 'img',
+   '.jpg': 'img',
+   '.mp4': 'video',
+   '.png': 'img',
+};
+
+function ext_from_url(url) {
+   const last_ext = url.match(/\.[^\.]+$/)[0];
+   return last_ext;
+}
+
 async function set_slide(id) {
    console.log('set_slide', ...arguments);
 
@@ -151,35 +170,68 @@ async function set_slide(id) {
 
    // -
 
-   G.slide_id = umod(id-1, G.url_list.length)+1;
-   const url = G.url_list[G.slide_id-1];
-   const info = `[${G.slide_id}/${G.url_list.length}] ${url}`;
-   console.log(info);
+   let elem;
+   while (true) {
+      G.slide_id = umod(id-1, G.url_list.length)+1;
+      const url = G.url_list[G.slide_id-1];
+      const info = `[${G.slide_id}/${G.url_list.length}] ${url}`;
+      console.log(info);
 
-   const img = document.createElement('img');
-   img.src = url;
-   img.title = info;
-   await img.decode();
+      const ext = ext_from_url(url);
+      const mt = MEDIA_TYPE_BY_FILE_EXT[ext];
+      switch (mt) {
+      case 'img':
+         elem = document.createElement('img');
+         elem.src = url;
+         elem.title = info;
+         try {
+            await elem.decode();
+         } catch (e) {
+            console.warn(`Skipping failing url '${url}':`, e);
+            elem = null;
+         }
+         break;
+      case 'video':
+         elem = document.createElement('video');
+         elem.src = url;
+         elem.title = info;
+         elem.muted = true; // So that autoplay works
+         try {
+            await elem.play();
+         } catch (e) {
+            console.warn(`Skipping failing url '${url}':`, e);
+            elem = null;
+         }
+         break;W
+      default:
+         console.warn(`Skipping file ext '${ext}' for ${url}...`);
+         break;
+      }
+      if (!elem) {
+         id += 1;
+         continue;
+      }
+      break;
+   }
 
-   set_img(img);
+   set_media(elem);
 }
 
-function set_img(img) {
-   console.log('set_img', ...arguments);
+function set_media(elem) {
+   console.log('set_media', ...arguments);
 
-   // clear
+   // style
+   //const aspect_ratio = elem.naturalWidth / elem.naturalHeight;
+   //elem.style.aspectRatio = aspect_ratio;
+   elem.style.width = '100%';
+   elem.style.height = '100%';
+   elem.style.objectFit = 'contain';
+   //elem.style.objectPosition: 'center';
+   //elem.style.margin = 'auto';
+
+   // clear and show
    remove_children(e_display);
-
-   // show
-   //const aspect_ratio = img.naturalWidth / img.naturalHeight;
-   //img.style.aspectRatio = aspect_ratio;
-   img.style.width = '100%';
-   img.style.height = '100%';
-   img.style.objectFit = 'contain';
-   //img.style.objectPosition: 'center';
-   //img.style.margin = 'auto';
-
-   e_display.appendChild(img);
+   e_display.appendChild(elem);
 }
 
 document.addEventListener('keydown', async (e) => {
@@ -195,18 +247,28 @@ document.addEventListener('keydown', async (e) => {
 
 function parse_url_list(text) {
    text = text.replace('\r', '');
+
    let list = text.split('\n');
    list = list.map(x => {
       x = x.trim();
       if (x.startsWith('#')) return '';
       return x;
    });
+
    list = list.filter(x => {
       if (!x) return false;
-      if (x.includes('.txt')) return false;
-      if (x.includes('.mp4')) return false;
+
+      const ext = ext_from_url(x);
+      const mt = MEDIA_TYPE_BY_FILE_EXT[ext];
+      if (!mt) {
+         console.warning(`Ignoring ext '${ext}' for '${x}'.`);
+         return false;
+      }
+
       return true;
    });
+   if (!list) throw 'parse_url_list() -> []';
+
    return list;
 }
 
@@ -246,7 +308,7 @@ async function ensure_url_list() {
       while (true) {
          const remaining = G.next_slide_time - performance.now();
          if (remaining < 100) break;
-         console.log(`sleeping for ${remaining}ms...`);
+         console.log(`[sleeping for ${remaining}ms...]`);
          await new Promise(go => setTimeout(go, remaining));
       }
 
@@ -267,13 +329,17 @@ e_list_file.addEventListener('input', async () => {
    set_slide(1);
 });
 
-e_display.addEventListener('click', () => {
+function toggle_header() {
    if (e_header.style.display == 'block') {
       e_header.style.display = 'none';
    } else {
       e_header.style.display = 'block';
    }
-});
+}
+
+e_display.addEventListener('click', toggle_header);
+e_slides_info.addEventListener('click', toggle_header);
+
       </script>
    </body>
 </html>
