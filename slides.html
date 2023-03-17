@@ -5,9 +5,6 @@
    </head>
    <body>
       <style>
-* {
-   !box-sizing: border-box;
-}
 #e_display {
    !border: solid 1px green;
    width: 100%;
@@ -198,7 +195,9 @@ async function set_slide(id) {
          elem = document.createElement('video');
          elem.src = url;
          elem.title = info;
+         elem.autoplay = true;
          elem.muted = true; // So that autoplay works
+         elem.loop = true;
          try {
             await elem.play();
          } catch (e) {
