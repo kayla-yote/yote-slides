@@ -170,7 +170,7 @@ function ext_from_url(url) {
 }
 
 async function set_slide(id) {
-   console.log('set_slide', ...arguments);
+   //console.log('set_slide', ...arguments);
 
    // Set next_slide_time first in case anything goes wrong, so that we continue
    // to the next slide.
@@ -190,7 +190,9 @@ async function set_slide(id) {
    while (true) {
       G.slide_id = umod(id-1, G.url_list.length)+1;
       const url = G.url_list[G.slide_id-1];
-      const info = `[${G.slide_id}/${G.url_list.length}] ${url}`;
+      const date = new Date();
+      const time = date.toLocaleTimeString();
+      const info = `[${time}] ${G.slide_id}/${G.url_list.length}: ${url}`;
       console.log(info);
 
       const ext = ext_from_url(url);
@@ -236,7 +238,7 @@ async function set_slide(id) {
 }
 
 function set_media(elem) {
-   console.log('set_media', ...arguments);
+   //console.log('set_media', ...arguments);
 
    // style
    //const aspect_ratio = elem.naturalWidth / elem.naturalHeight;
@@ -297,7 +299,7 @@ function set_url_list(url_list) {
    e_slides_info.textContent = `${G.url_list.length} slides: `;
 
    setTimeout(() => {
-      e_header.style.display = 'none';
+      e_header.hidden = true;
    }, 1500);
 
    remove_children(e_slides_links);
@@ -326,7 +328,7 @@ async function ensure_url_list() {
       while (true) {
          const remaining = G.next_slide_time - performance.now();
          if (remaining < 100) break;
-         console.log(`[sleeping for ${remaining}ms...]`);
+         //console.log(`[sleeping for ${remaining}ms...]`);
          await new Promise(go => setTimeout(go, remaining));
       }
 
@@ -348,11 +350,7 @@ e_list_file.addEventListener('input', async () => {
 });
 
 function toggle_header() {
-   if (e_header.style.display == 'block') {
-      e_header.style.display = 'none';
-   } else {
-      e_header.style.display = 'block';
-   }
+   e_header.hidden = !e_header.hidden;
 }
 
 e_display.addEventListener('click', toggle_header);
