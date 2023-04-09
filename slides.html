@@ -2,6 +2,7 @@
 <html>
    <head>
       <meta charset=utf-8>
+      <script src=fake-wake-lock.js></script>
    </head>
    <body>
       <style>
@@ -78,6 +79,21 @@ function remove_children(elem) {
 function add_child_tag(parent, tag) {
    return parent.appendChild(document.createElement(tag));
 }
+
+// -
+
+async function wake_forever(refresh_every_n_seconds = 10) {
+   while (true) {
+      try {
+         const lock = await navigator.wakeLock.request();
+         await new Promise(go => {
+            setTimeout(go, refresh_every_n_seconds*1000);
+         });
+         await lock.release();
+      } catch (e) {}
+   }
+}
+wake_forever();
 
 // -
 /*
@@ -195,7 +211,6 @@ async function set_slide(id) {
          elem = document.createElement('video');
          elem.src = url;
          elem.title = info;
-         elem.autoplay = true;
          elem.muted = true; // So that autoplay works
          elem.loop = true;
          try {
