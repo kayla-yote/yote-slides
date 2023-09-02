@@ -6,24 +6,49 @@
    </head>
    <body>
       <style>
-#e_display {
-   !border: solid 1px green;
-   width: 100%;
-   height: 100%;
-   max-width: inherit;
-   max-height: inherit;
-}
 body {
    font-family: sans-serif;
-   margin: 0;
+   background-color: #333;
+   -overflow: hidden;
+}
+#e_display {
+   -border: solid 1px green;
+   position: absolute;
+   top: 0;
+   left: 0;
    width: 100vw;
    height: 100vh;
-   max-width: 100vw;
-   max-height: 100vh;
-   background-color: #333;
+}
+#e_status {
+   background-color: #000;
+   border: solid 1px red;
+   color: #aaa;
+   position: absolute;
+   padding: 0.5em;
+   left: 1em;
+   top: 1em;
+   opacity: 0;
+}
+#e_note {
+   border: solid 2px #0007;
+   -border: solid 1px orange;
+   background-color: #2227;
+   position: absolute;
+   padding: 1em;
+   left: 10vh;
+   max-width: calc(100vw - 20vh - 2em);
+   bottom: 5vh;
+   -min-height: 10vh;
+   white-space: pre-wrap;
+   font-size: 1.1em;
+   font-weight: bold;
+   color: #000;
+	text-shadow: 0 0 0.8em #fff,
+                0 0 0.4em #fff,
+                0 0 0.4em #fff;
 }
 #e_header {
-   padding: 8px;
+   -padding: 8px;
    background-color: #555;
 }
 #e_slides_info {
@@ -46,6 +71,8 @@ body {
          <hr>
       </div>
       <div id=e_display></div>
+      <div id=e_status></div>
+      <div id=e_note></div>
       <script>
 
 async function file_as_text(file) {
@@ -96,58 +123,6 @@ async function wake_forever(refresh_every_n_seconds = 10) {
 wake_forever();
 
 // -
-/*
-async function animate_fade_in_out(elem, fade_ms, show_ms) {
-   elem.animate({
-      opacity: [0, 1],
-   }, {
-      delay: 0,
-      duration: fade_ms,
-   });
-   const anim = elem.animate({
-      opacity: [1, 0],
-   }, {
-      delay: fade_ms+show_ms,
-      duration: fade_ms,
-   });
-   await anim.finished();
-}
-
-async function animate_transform(elem, from, to, ms) {
-   const anim = elem.animate({
-      transform: [from, to],
-   }, ms);
-   await anim.finished();
-}
-
-async function show_slide(parent, url) {
-   const img = document.createElement('img');
-   img.src = url;
-   await img.decode();
-   parent.appendChild(img);
-   img.style.opacity = 0;
-
-   const angle = Math.random();
-   const dist = PAN_DIST_MIN + Math.random() * (PAN_DIST_MAX - PAN_DIST_MIN);
-   const to = [
-      dist * Math.cos(2 * Math.PI * angle),
-      dist * Math.sin(2 * Math.PI * angle),
-   ];
-   const from = to.map(x => -x);
-
-   const as_translate = arr => 'translate(' + arr.map(x => x + PAN_DIST_UNIT).join(', ') + ')';
-
-   await Promise.all([
-      animate_fade_in_out(img, FADE_MS, SHOW_MS),
-      animate_transform(img,
-         as_translate(from),
-         as_translate(to),
-         FADE_MS+SHOW_MS+FADE_MS),
-   ]);
-   parent.removeChild(img);
-}
-*/
-// -
 
 SLIDE_DUR_MS = 10 * 1000;
 DEFAULT_LIST_URL = 'slides/list.txt';
@@ -169,8 +144,15 @@ function ext_from_url(url) {
    return last_ext;
 }
 
+async function after_reflow(fn) {
+   await new Promise(requestAnimationFrame);
+   await new Promise(requestAnimationFrame);
+   return await fn();
+}
+
 async function set_slide(id) {
    //console.log('set_slide', ...arguments);
+   const id_inc = (id >= G.slide_id) ? 1 : -1;
 
    // Set next_slide_time first in case anything goes wrong, so that we continue
    // to the next slide.
@@ -189,11 +171,24 @@ async function set_slide(id) {
    let elem;
    while (true) {
       G.slide_id = umod(id-1, G.url_list.length)+1;
-      const url = G.url_list[G.slide_id-1];
+      const slide_desc = G.url_list[G.slide_id-1];
+      const url = slide_desc.url;
       const date = new Date();
       const time = date.toLocaleTimeString();
-      const info = `[${time}] ${G.slide_id}/${G.url_list.length}: ${url}`;
-      console.log(info);
+      const status = `${G.slide_id}/${G.url_list.length}: ${url}`;
+      console.log(`[${time}] ${status}`);
+
+      e_note.innerHTML = slide_desc.desc;
+      e_note.style.transition = '';
+      e_note.style.opacity = 0;
+      if (e_note.innerHTML) {
+         after_reflow(() => {
+            e_note.style.transition = 'opacity 0.5s 2s ease-out';
+            e_note.style.opacity = 1;
+         });
+      }
+
+      e_status.textContent = status;
 
       const ext = ext_from_url(url);
       const mt = MEDIA_TYPE_BY_FILE_EXT[ext];
@@ -201,7 +196,7 @@ async function set_slide(id) {
       case 'img':
          elem = document.createElement('img');
          elem.src = url;
-         elem.title = info;
+         elem.title = status;
          try {
             await elem.decode();
          } catch (e) {
@@ -212,7 +207,7 @@ async function set_slide(id) {
       case 'video':
          elem = document.createElement('video');
          elem.src = url;
-         elem.title = info;
+         elem.title = status;
          elem.muted = true; // So that autoplay works
          elem.loop = true;
          try {
@@ -228,7 +223,7 @@ async function set_slide(id) {
       }
       if (!elem) {
          reset_next_slide_time(); // Keep resetting if skipping
-         id += 1;
+         id += id_inc;
          continue;
       }
       break;
@@ -255,39 +250,93 @@ function set_media(elem) {
 }
 
 document.addEventListener('keydown', async (e) => {
+   const inc_slide = async d_id => {
+      e_status.style.transition = '';
+      e_status.style.opacity = 1;
+      after_reflow(() => {
+         e_status.style.transition = 'opacity 2s ease-in';
+         e_status.style.opacity = 0;
+      });
+
+      await set_slide(G.slide_id+d_id);
+   };
+
    switch (e.key) {
    case "ArrowLeft":
-      await set_slide(G.slide_id-1);
+      inc_slide(-1);
       break;
    case "ArrowRight":
-      await set_slide(G.slide_id+1);
+      inc_slide(+1);
+      break;
+   case "ArrowUp":
+      e_note.style.transition = '';
+      if (e_note.innerHTML) {
+         e_note.style.opacity = 0.999; // If 1.0 it sees no change and continues the old transition.
+      }
+      break;
+   case "ArrowDown":
+      e_note.style.transition = '';
+      e_note.style.opacity = 0.001;
       break;
    }
 });
 
-function parse_url_list(text) {
-   text = text.replace('\r', '');
+function parse_url_list(list_url, text) {
+   text = text.replaceAll('\r', '');
 
    let list = text.split('\n');
+   let line_num = 0;
    list = list.map(x => {
+      line_num += 1;
       x = x.trim();
-      if (x.startsWith('#')) return '';
-      return x;
-   });
+      if (!x || x.startsWith('#')) return null;
 
-   list = list.filter(x => {
-      if (!x) return false;
+      let space_pos = x.indexOf(' ');
+      if (space_pos == -1) {
+         space_pos = x.length;
+      }
+      const slide_desc = {
+         url: x.slice(0, space_pos),
+         line_num: line_num,
+         desc: '',
+      };
 
-      const ext = ext_from_url(x);
+      // -
+
+      let extra = x.slice(space_pos+1).trim();
+      if (extra[0] == '{') {
+         try {
+            extra = JSON.parse(extra);
+         } catch (e) {
+            console.warning(`[${list_url}:${line_num}] JSON.parse failed for '${extra}':`, e);
+            return null;
+         }
+         for (const [k,v] of Object.entries(extra)) {
+            if (slide_desc[k] === undefined) {
+               console.warning(`[${list_url}:${line_num}] Invalid key '${k}' ignored, not in [${ Object.keys(slide_desc).join(', ') }]`);
+               continue;
+            }
+            slide_desc[k] = v;
+         }
+      } else {
+         slide_desc.desc = extra;
+      }
+      slide_desc.desc = slide_desc.desc.replaceAll('\\n', '\n');
+
+      // -
+
+      const ext = ext_from_url(slide_desc.url);
       const mt = MEDIA_TYPE_BY_FILE_EXT[ext];
       if (!mt) {
-         console.warning(`Ignoring ext '${ext}' for '${x}'.`);
-         return false;
+         console.warning(`[${list_url}:${line_num}] Ignoring unhandled ext '${ext}' for '${slide_desc.url}'.`);
+         return null;
       }
 
-      return true;
+      return slide_desc;
    });
-   if (!list) throw 'parse_url_list() -> []';
+
+   list = list.filter(x => x != null);
+   if (!list) throw `parse_url_list(${list_url}) -> []`;
 
    return list;
 }
@@ -303,19 +352,19 @@ function set_url_list(url_list) {
    }, 1500);
 
    remove_children(e_slides_links);
-   for (const url of G.url_list) {
+   for (const slide_desc of G.url_list) {
       const li = add_child_tag(e_slides_links, 'li');
-      li.textContent = url;
+      li.textContent = slide_desc.url;
    }
 }
 
 async function ensure_url_list() {
    if (G.url_list.length) return;
-
-   const res = await fetch(DEFAULT_LIST_URL);
+   const list_url = DEFAULT_LIST_URL;
+   const res = await fetch(list_url);
    const text = await res.text();
 
-   const url_list = parse_url_list(text);
+   const url_list = parse_url_list(list_url, text);
    set_url_list(url_list);
 }
 
@@ -344,7 +393,7 @@ e_list_file.addEventListener('input', async () => {
    const file = e_list_file.files[0];
    const text = await file_as_text(file);
 
-   const url_list = parse_url_list(text);
+   const url_list = parse_url_list(file.name, text);
    set_url_list(url_list);
    set_slide(1);
 });
