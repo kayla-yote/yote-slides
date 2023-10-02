@@ -23,7 +23,7 @@ body {
    background-color: #000;
    border: solid 1px red;
    color: #aaa;
-   position: absolute;
+   position: fixed;
    padding: 0.5em;
    left: 1em;
    top: 1em;
@@ -52,14 +52,14 @@ body {
    top: 100vh; /* start just below the main display */
    left: 0;
    padding: 1em;
-   background-color: #555;
+   background-color: #777;
    transition: top 1.0s 0.5s;
 }
 #e_slides_info {
-   background-color: #252;
+   -background-color: #252;
 }
 #e_slides_links {
-   background-color: #555;
+   -background-color: #555;
 }
       </style>
       <div id=e_display></div>
@@ -71,20 +71,20 @@ body {
          Add directories:<input id=e_add_dirs type=file multiple webkitdirectory>
          <br>
          Add files:<input id=e_add_files type=file multiple>
-         <br>
+         <hr>
+         Seconds per slide:<input id=e_sec_per_slide type=number value=12 min=1>
+         <hr>
          <span id=e_slides_info>0 slides loaded</span>
          <br>
          <input id=e_clear type=button value=Clear>
          <input id=e_shuffle type=button value=Shuffle>
          <br>
-         Order seed:<input id=e_order_seed type=text size=30>
-         <br>
-         <ol id=e_slides_links>
-           <li>1: foo.jpg
-           <li>2: bar.mp4
-           <li>3: tac.html
-         </ol>
+         Order key:<input id=e_order_seed type=text size=30>
          <hr>
+         <ol id=e_slides_links>
+           <li>e-g-slide-1.jpg
+           <li>e-g-slide-2.mp4
+         </ol>
       </div>
       <script>
 
@@ -188,12 +188,12 @@ function fnv1a_32_hex(input) {
 
 // -
 
-SLIDE_DUR_MS = 12 * 1000;
 DEFAULT_LIST_URL = 'slides/list.txt';
 
 const G = {
    url_list: [],
    slide_id: 1, // one-based
+   recalc_slide_timer: () => {},
 };
 
 const MEDIA_TYPE_BY_FILE_EXT = {
@@ -220,8 +220,8 @@ async function set_slide(id) {
 
    // Set next_slide_time first in case anything goes wrong, so that we continue
    // to the next slide.
-   SLIDE_DUR_MS.defined;
-   function reset_next_slide_time(ms_after_now=SLIDE_DUR_MS) {
+   function reset_next_slide_time(ms_after_now) {
+      ms_after_now = ms_after_now || ms_per_slide();
       G.next_slide_time = performance.now() + ms_after_now;
    }
    reset_next_slide_time();
@@ -438,7 +438,8 @@ function set_url_list(url_list) {
    console.log('set_url_list', ...arguments);
 
    G.url_list = url_list;
-   const secs = (G.url_list.length * SLIDE_DUR_MS / 1000)|0;
+   G.recalc_slide_timer();
+   const secs = (G.url_list.length * ms_per_slide()/1000)|0;
    const mins = Math.round(secs / 60);
    e_slides_info.textContent = `${G.url_list.length} slides: (~${mins}m)`;
 
@@ -449,13 +450,20 @@ function set_url_list(url_list) {
    }
 }
 
+
+e_note.style.transition = '';
+e_note.style.opacity = 0;
+
 (async () => {
    const list_url = DEFAULT_LIST_URL;
    const res = await fetch(list_url);
-   const text = await res.text();
-
-   const url_list = parse_url_list(list_url, text);
-   set_url_list(url_list);
+   if (!res.ok) {
+      console.warn(`Initial list not found at '${DEFAULT_LIST_URL}'.`);
+   } else {
+      const text = await res.text();
+      const url_list = parse_url_list(list_url, text);
+      set_url_list(url_list);
+   }
 
    // -
 
@@ -466,7 +474,9 @@ function set_url_list(url_list) {
          const remaining = G.next_slide_time - performance.now();
          if (remaining < 100) break;
          //console.log(`[sleeping for ${remaining}ms...]`);
-         await new Promise(go => setTimeout(go, remaining));
+         const timer = new Promise(go => setTimeout(go, remaining));
+         const interrupt = new Promise(go => { G.recalc_slide_timer = go; });
+         await Promise.race([timer, interrupt]);
       }
 
       set_slide(G.slide_id+1);
@@ -505,6 +515,23 @@ async function add_files(elem) {
 
 e_add_dirs.addEventListener('input', async () => await add_files(e_add_dirs));
 e_add_files.addEventListener('input', async () => await add_files(e_add_files));
+
+function ms_per_slide() {
+   // If we don't have a (reasonable) minimum, we can easily freeze the browser.
+   e_sec_per_slide.value = Math.max(1, e_sec_per_slide.value);
+   const ms = e_sec_per_slide.value * 1000;
+   return ms;
+}
+
+e_sec_per_slide.addEventListener('input', () => {
+   const new_next_slide_time = performance.now() + ms_per_slide();
+   if (new_next_slide_time < G.next_slide_time) {
+      G.next_slide_time = new_next_slide_time;
+      G.recalc_slide_timer();
+   }
+
+   set_url_list(G.url_list); // Refresh estimated runtime.
+});
 
 function apply_order_seed() {
    const hash_by_slide_desc = new Map();
