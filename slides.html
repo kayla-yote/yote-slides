@@ -47,9 +47,13 @@ body {
                 0 0 0.4em #fff,
                 0 0 0.4em #fff;
 }
-#e_header {
-   -padding: 8px;
+#e_controls {
+   position: absolute;
+   top: 100vh; /* start just below the main display */
+   left: 0;
+   padding: 1em;
    background-color: #555;
+   transition: top 1.0s 0.5s;
 }
 #e_slides_info {
    background-color: #252;
@@ -58,10 +62,22 @@ body {
    background-color: #555;
 }
       </style>
-      <div id=e_header>
-         List file:<input id=e_list_file type=file>
+      <div id=e_display></div>
+      <div id=e_status></div>
+      <div id=e_note></div>
+      <div id=e_controls>
+         Load list file:<input id=e_list_file type=file>
+         <br>
+         Add directories:<input id=e_add_dirs type=file multiple webkitdirectory>
+         <br>
+         Add files:<input id=e_add_files type=file multiple>
          <br>
          <span id=e_slides_info>0 slides loaded</span>
+         <br>
+         <input id=e_clear type=button value=Clear>
+         <input id=e_shuffle type=button value=Shuffle>
+         <br>
+         Order seed:<input id=e_order_seed type=text size=30>
          <br>
          <ol id=e_slides_links>
            <li>1: foo.jpg
@@ -70,9 +86,6 @@ body {
          </ol>
          <hr>
       </div>
-      <div id=e_display></div>
-      <div id=e_status></div>
-      <div id=e_note></div>
       <script>
 
 async function file_as_text(file) {
@@ -124,7 +137,58 @@ wake_forever();
 
 // -
 
-SLIDE_DUR_MS = 10 * 1000;
+// FNV-1a: A solid and simple non-cryptographic hash.
+// https://en.wikipedia.org/wiki/Fowler%E2%80%93Noll%E2%80%93Vo_hash_function
+// (Would be simpler if doing full-precision u32*u32 were easier in JS...)
+function fnv1a_32(input, continue_from) {
+   let bytes = input;
+   if (typeof bytes == 'string') {
+      bytes = new Uint8Array([].map.call(bytes, x => x.codePointAt(0)));
+   } else if (bytes.buffer instanceof ArrayBuffer) {
+      bytes = new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+   } else if (bytes instanceof ArrayBuffer) {
+      bytes = new Uint8Array(bytes.buffer);
+   } else {
+      throw input.constructor.name;
+   }
+
+   // Because Everything Is Doubles, we only have 53bit integer precision,
+   // so i32*i32 is imprecise (i.e. wrong) for larger numbers.
+   function mul_i32(a, b) {
+      const ah = (a >> 16) & 0xffff;
+      const al = a & 0xffff;
+      return ((ah*b << 16) + (al*b|0)) | 0;
+   }
+
+   const PRIME = 0x01000193;
+   const OFFSET_BASIS = 0x811c9dc5;
+
+   if (continue_from === undefined) {
+      continue_from = OFFSET_BASIS;
+   }
+   let hash = continue_from;
+   bytes.forEach(c => {
+      // i32*i32->i32 has the same bit-result as u32*u32->u32.
+      hash = mul_i32(PRIME, hash ^ c);
+   });
+
+   const u32 = new Uint32Array(1);
+   u32[0] = hash;
+   return u32[0];
+}
+
+function fnv1a_32_hex(input) {
+   const h = fnv1a_32(input);
+   let hs = h.toString(16);
+   while (hs.length < 8) {
+      hs = '0' + hs;
+   }
+   return '0x' + hs;
+}
+
+// -
+
+SLIDE_DUR_MS = 12 * 1000;
 DEFAULT_LIST_URL = 'slides/list.txt';
 
 const G = {
@@ -157,28 +221,24 @@ async function set_slide(id) {
    // Set next_slide_time first in case anything goes wrong, so that we continue
    // to the next slide.
    SLIDE_DUR_MS.defined;
-   function reset_next_slide_time() {
-      G.next_slide_time = performance.now() + SLIDE_DUR_MS;
+   function reset_next_slide_time(ms_after_now=SLIDE_DUR_MS) {
+      G.next_slide_time = performance.now() + ms_after_now;
    }
    reset_next_slide_time();
 
    // -
 
-   await ensure_url_list();
-
-   // -
-
    let elem;
-   while (true) {
+   while (G.url_list.length) {
       G.slide_id = umod(id-1, G.url_list.length)+1;
       const slide_desc = G.url_list[G.slide_id-1];
-      const url = slide_desc.url;
+      const name = slide_desc.name;
       const date = new Date();
       const time = date.toLocaleTimeString();
-      const status = `${G.slide_id}/${G.url_list.length}: ${url}`;
+      const status = `${G.slide_id}/${G.url_list.length}: ${name}`;
       console.log(`[${time}] ${status}`);
 
-      e_note.innerHTML = slide_desc.desc;
+      e_note.innerHTML = slide_desc.notes;
       e_note.style.transition = '';
       e_note.style.opacity = 0;
       if (e_note.innerHTML) {
@@ -189,46 +249,20 @@ async function set_slide(id) {
       }
 
       e_status.textContent = status;
-
-      const ext = ext_from_url(url);
-      const mt = MEDIA_TYPE_BY_FILE_EXT[ext];
-      switch (mt) {
-      case 'img':
-         elem = document.createElement('img');
-         elem.src = url;
-         elem.title = status;
-         try {
-            await elem.decode();
-         } catch (e) {
-            console.warn(`Skipping failing url '${url}':`, e);
-            elem = null;
-         }
-         break;
-      case 'video':
-         elem = document.createElement('video');
-         elem.src = url;
-         elem.title = status;
-         elem.muted = true; // So that autoplay works
-         elem.loop = true;
-         try {
-            await elem.play();
-         } catch (e) {
-            console.warn(`Skipping failing url '${url}':`, e);
-            elem = null;
-         }
-         break;
-      default:
-         console.warn(`Skipping file ext '${ext}' for ${url}...`);
-         break;
-      }
+      elem = await slide_desc.create_elem();
       if (!elem) {
          reset_next_slide_time(); // Keep resetting if skipping
          id += id_inc;
          continue;
       }
+      elem.title = status;
       break;
    }
-
+   if (!elem) {
+      show_status('Add slides to continue...');
+      reset_next_slide_time(2000); // Make it pulse.
+      return;
+   }
    set_media(elem);
 }
 
@@ -249,15 +283,20 @@ function set_media(elem) {
    e_display.appendChild(elem);
 }
 
+function show_status(text) {
+   e_status.textContent = text;
+
+   e_status.style.transition = '';
+   e_status.style.opacity = 1;
+   after_reflow(() => {
+      e_status.style.transition = 'opacity 2s ease-in';
+      e_status.style.opacity = 0;
+   });
+}
+
 document.addEventListener('keydown', async (e) => {
    const inc_slide = async d_id => {
-      e_status.style.transition = '';
-      e_status.style.opacity = 1;
-      after_reflow(() => {
-         e_status.style.transition = 'opacity 2s ease-in';
-         e_status.style.opacity = 0;
-      });
-
+      show_status();
       await set_slide(G.slide_id+d_id);
    };
 
@@ -281,6 +320,58 @@ document.addEventListener('keydown', async (e) => {
    }
 });
 
+class EUnhandledExt extends Error {
+   /*constructor() {
+      super(...arguments);
+   }*/
+}
+
+function SlideDesc(name, src) {
+   name.defined;
+   src.defined;
+
+   this.name = name;
+   this.src = src;
+   this.ext = ext_from_url(this.name);
+   this.notes = '';
+
+   this.ext_type = MEDIA_TYPE_BY_FILE_EXT[this.ext];
+   if (!this.ext_type) {
+      throw new EUnhandledExt(`Ignoring unhandled ext '${this.ext}' for '${this.name}'.`);
+   }
+}
+SlideDesc.prototype.create_elem = async function() {
+   switch (this.ext_type) {
+      case 'img': {
+         const elem = document.createElement('img');
+         elem.src = this.src;
+         try {
+            await elem.decode();
+         } catch (e) {
+            console.warn(`Skipping failing img ${this.name}:`, this, e);
+            return null;
+         }
+         return elem;
+      }
+      case 'video': {
+         const elem = document.createElement('video');
+         elem.src = this.src;
+         elem.muted = true; // So that autoplay works
+         elem.loop = true;
+         try {
+            await elem.play();
+         } catch (e) {
+            console.warn(`Skipping failing video ${this.name}:`, this, e);
+            return null;
+         }
+         return elem;
+      }
+      default:
+         console.warn(`Skipping file ext '${this.ext}' for ${this.name}...`);
+         return null;
+   }
+}
+
 function parse_url_list(list_url, text) {
    text = text.replaceAll('\r', '');
 
@@ -295,11 +386,20 @@ function parse_url_list(list_url, text) {
       if (space_pos == -1) {
          space_pos = x.length;
       }
-      const slide_desc = {
-         url: x.slice(0, space_pos),
-         line_num: line_num,
-         desc: '',
-      };
+      const url = x.slice(0, space_pos);
+
+      const slide_desc = (() => {
+         try {
+            return new SlideDesc(url, url);
+         } catch (e) {
+            if (e instanceof EUnhandledExt) {
+               console.warn(`[${list_url}:${line_num}] ${e.message}`);
+               return null;
+            }
+            throw e;
+         }
+      })();
+      if (!slide_desc) return null;
 
       // -
 
@@ -308,34 +408,27 @@ function parse_url_list(list_url, text) {
          try {
             extra = JSON.parse(extra);
          } catch (e) {
-            console.warning(`[${list_url}:${line_num}] JSON.parse failed for '${extra}':`, e);
+            console.warn(`[${list_url}:${line_num}] JSON.parse failed for '${extra}':`, e);
             return null;
          }
          for (const [k,v] of Object.entries(extra)) {
             if (slide_desc[k] === undefined) {
-               console.warning(`[${list_url}:${line_num}] Invalid key '${k}' ignored, not in [${ Object.keys(slide_desc).join(', ') }]`);
+               console.warn(`[${list_url}:${line_num}] Invalid key '${k}' ignored, not in [${ Object.keys(slide_desc).join(', ') }]`);
                continue;
             }
             slide_desc[k] = v;
          }
       } else {
-         slide_desc.desc = extra;
+         slide_desc.notes = extra;
       }
-      slide_desc.desc = slide_desc.desc.replaceAll('\\n', '\n');
+      slide_desc.notes = slide_desc.notes.replaceAll('\\n', '\n');
 
       // -
-
-      const ext = ext_from_url(slide_desc.url);
-      const mt = MEDIA_TYPE_BY_FILE_EXT[ext];
-      if (!mt) {
-         console.warning(`[${list_url}:${line_num}] Ignoring unhandled ext '${ext}' for '${slide_desc.url}'.`);
-         return null;
-      }
 
       return slide_desc;
    });
 
-   list = list.filter(x => x != null);
+   list = list.filter(x => x);
    if (!list) throw `parse_url_list(${list_url}) -> []`;
 
    return list;
@@ -347,29 +440,22 @@ function set_url_list(url_list) {
    G.url_list = url_list;
    e_slides_info.textContent = `${G.url_list.length} slides: `;
 
-   setTimeout(() => {
-      e_header.hidden = true;
-   }, 1500);
-
    remove_children(e_slides_links);
    for (const slide_desc of G.url_list) {
       const li = add_child_tag(e_slides_links, 'li');
-      li.textContent = slide_desc.url;
+      li.textContent = slide_desc.name;
    }
 }
 
-async function ensure_url_list() {
-   if (G.url_list.length) return;
+(async () => {
    const list_url = DEFAULT_LIST_URL;
    const res = await fetch(list_url);
    const text = await res.text();
 
    const url_list = parse_url_list(list_url, text);
    set_url_list(url_list);
-}
 
-(async () => {
-   await ensure_url_list();
+   // -
 
    set_slide(1);
 
@@ -387,7 +473,11 @@ async function ensure_url_list() {
    }
 })();
 
+// -
+
 e_list_file.addEventListener('input', async () => {
+   e_order_seed.value = '';
+
    console.assert(e_list_file.files.length == 1);
    if (!e_list_file.files.length) return;
    const file = e_list_file.files[0];
@@ -398,12 +488,73 @@ e_list_file.addEventListener('input', async () => {
    set_slide(1);
 });
 
-function toggle_header() {
-   e_header.hidden = !e_header.hidden;
+async function add_files(elem) {
+   const files = elem.files;
+   if (!files.length) return;
+
+   for (const f of files) {
+      console.log('add file from', elem.id, f, f.name);
+      const url = URL.createObjectURL(f);
+      const slide_desc = new SlideDesc(f.name, url);
+      G.url_list.push(slide_desc);
+   }
+   set_url_list(G.url_list); // No op, but refreshes display.
 }
 
-e_display.addEventListener('click', toggle_header);
-e_slides_info.addEventListener('click', toggle_header);
+e_add_dirs.addEventListener('input', async () => await add_files(e_add_dirs));
+e_add_files.addEventListener('input', async () => await add_files(e_add_files));
+
+function apply_order_seed() {
+   const hash_by_slide_desc = new Map();
+   G.url_list.forEach(slide_desc => {
+      const key = slide_desc.name + e_order_seed.value;
+      const hash = fnv1a_32_hex(key);
+      hash_by_slide_desc.set(slide_desc, hash);
+   });
+   G.url_list.sort((a, b) => {
+      a = hash_by_slide_desc.get(a);
+      b = hash_by_slide_desc.get(b);
+      return a.localeCompare(b);
+   });
+   hash_by_slide_desc.clear();
+   set_url_list(G.url_list); // No op, but refreshes display.
+}
+
+e_order_seed.addEventListener('input', apply_order_seed);
+
+e_shuffle.addEventListener('click', () => {
+   let seed = (new Date()).toISOString(); // E.g. 2023-10-31T12:34:56.789Z
+   if (!e_order_seed.value) {
+      // Be slightly user-friendly at first.
+      seed = seed.slice(0, seed.indexOf('T')); // E.g. 2023-10-31
+   }
+   e_order_seed.value = seed;
+   apply_order_seed();
+});
+
+e_clear.addEventListener('click', () => {
+   e_order_seed.value = '';
+   set_url_list([]);
+});
+
+// -
+
+async function toggle_fullscreen() {
+   if (document.fullscreenElement) {
+      return await document.exitFullscreen();
+   }
+
+   return await document.documentElement.requestFullscreen({navigationUI: 'hide'});
+}
+e_display.addEventListener('click', toggle_fullscreen);
+
+// -
+
+// Peek e_controls and then slide it down into place, to demonstrate where it is.
+e_controls.style.top = '95vh';
+setTimeout(() => {
+   e_controls.style.top = '100vh';
+}, 0);
 
       </script>
    </body>
