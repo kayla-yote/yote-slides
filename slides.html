@@ -438,7 +438,9 @@ function set_url_list(url_list) {
    console.log('set_url_list', ...arguments);
 
    G.url_list = url_list;
-   e_slides_info.textContent = `${G.url_list.length} slides: `;
+   const secs = (G.url_list.length * SLIDE_DUR_MS / 1000)|0;
+   const mins = Math.round(secs / 60);
+   e_slides_info.textContent = `${G.url_list.length} slides: (~${mins}m)`;
 
    remove_children(e_slides_links);
    for (const slide_desc of G.url_list) {
