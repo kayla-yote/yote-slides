@@ -663,7 +663,6 @@ setTimeout(() => {
  * @param {FileSystemFileEntry} fsfe
  */
 async function promise_file_from_fsfe(fsfe) {
-   if (!(fsfe instanceof FileSystemFileEntry)) throw fsfe
    return await new Promise(go => {
       fsfe.file(f => go(f));
    });
@@ -672,7 +671,6 @@ async function promise_file_from_fsfe(fsfe) {
  * @param {FileSystemDirectoryEntry} fsde
  */
 async function promise_entries_from_fsde(fsde) {
-   if (!(fsde instanceof FileSystemDirectoryEntry)) throw fsde
    const reader = fsde.createReader();
    return await new Promise(go => {
       reader.readEntries(entries => go(entries));
@@ -792,7 +790,7 @@ DRAG_TARGET.addEventListener('drop', async e => {
       if (!fse_list) break;
       console.log(fse_list);
       for (const fse of fse_list) {
-         if (fse instanceof FileSystemFileEntry) {
+         if (fse.file) {
             f_queue.push(promise_file_from_fsfe(fse));
             continue;
          }
