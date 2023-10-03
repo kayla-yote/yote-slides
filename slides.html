@@ -72,7 +72,6 @@ body {
    border: inset 1em #4f4a;
    animation: 0.5s ease 0s infinite alternate pulse-opacity;
 }
-
 @keyframes pulse-opacity {
    from {
       opacity: 0.3;
@@ -80,6 +79,10 @@ body {
    to {
       opacity: 0.7;
    }
+}
+
+.index-cur-slide {
+   background-color: #0a0;
 }
       </style>
       <div id=e_display></div>
@@ -92,14 +95,14 @@ body {
          <br>
          Add files:<input id=e_add_files type=file multiple>
          <hr>
-         Seconds per slide:<input id=e_sec_per_slide type=number value=12 min=1>
+         Seconds per slide:<input id=e_sec_per_slide type=number value=12 min=1 size=5>
          <hr>
          <span id=e_slides_info>0 slides loaded</span>
          <br>
          <input id=e_clear type=button value=Clear>
          <input id=e_shuffle type=button value=Shuffle>
          <br>
-         Order key:<input id=e_order_seed type=text size=30>
+         Ordering key:<input id=e_order_seed type=text size=30>
          <hr>
          <ol id=e_slides_links>
            <li>e-g-slide-1.jpg
@@ -108,6 +111,10 @@ body {
       </div>
       <div id=e_drop_overlay hidden></div>
       <script>
+
+async function call(fn) {
+   return await fn();
+}
 
 async function file_as_text(file) {
    const fr = new FileReader();
@@ -235,6 +242,13 @@ async function after_reflow(fn) {
    return await fn();
 }
 
+function set_slide_by_desc(slide_desc) {
+   const i = G.url_list.indexOf(slide_desc);
+   if (i == -1) throw slide_desc;
+   const id = i+1;
+   return set_slide(id);
+}
+
 async function set_slide(id) {
    //console.log('set_slide', ...arguments);
    const id_inc = (id >= G.slide_id) ? 1 : -1;
@@ -251,8 +265,13 @@ async function set_slide(id) {
 
    let elem;
    while (G.url_list.length) {
+      const prev_slide_desc = G.url_list[G.slide_id-1];
+      if (prev_slide_desc) {
+         prev_slide_desc.li.classList.remove('index-cur-slide');
+      }
       G.slide_id = umod(id-1, G.url_list.length)+1;
       const slide_desc = G.url_list[G.slide_id-1];
+      slide_desc.li.classList.add('index-cur-slide');
       const name = slide_desc.name;
       const date = new Date();
       const time = date.toLocaleTimeString();
@@ -355,6 +374,12 @@ function SlideDesc(name, src) {
    this.src = src;
    this.ext = ext_from_url(this.name);
    this.notes = '';
+
+   const li = this.li = document.createElement('li');
+   li.textContent = this.name;
+   li.addEventListener('click', () => {
+      set_slide_by_desc(this);
+   });
 
    this.ext_type = MEDIA_TYPE_BY_FILE_EXT[this.ext];
    if (!this.ext_type) {
@@ -459,6 +484,10 @@ function set_url_list(url_list) {
    console.log('set_url_list', ...arguments);
 
    G.url_list = url_list;
+   rebuild_index();
+}
+
+function rebuild_index() {
    G.recalc_slide_timer();
    const secs = (G.url_list.length * ms_per_slide()/1000)|0;
    const mins = Math.round(secs / 60);
@@ -466,8 +495,8 @@ function set_url_list(url_list) {
 
    remove_children(e_slides_links);
    for (const slide_desc of G.url_list) {
-      const li = add_child_tag(e_slides_links, 'li');
-      li.textContent = slide_desc.name;
+      const li = slide_desc.li;
+      e_slides_links.appendChild(li);
    }
 }
 
@@ -524,27 +553,28 @@ e_list_file.addEventListener('input', async () => {
 async function add_files(src_info, files) {
    if (!files.length) return;
 
-   let added = 0;
+   const url_list = G.url_list.slice();
    for (const f of files) {
       console.log('add file from', src_info, f, f.name);
       const url = URL.createObjectURL(f);
       try {
          const slide_desc = new SlideDesc(f.name, url);
-         G.url_list.push(slide_desc);
-         added += 1;
+         url_list.push(slide_desc);
       } catch (e) {
          console.warn(`Error adding ${f.name}:`, f, e);
       }
    }
-   show_status(`Added ${added} files.`);
-   set_url_list(G.url_list); // No op, but refreshes display.
+   show_status(`Added ${url_list.length - G.url_list.length} files.`);
+   set_url_list(url_list);
 }
 
 e_add_dirs.addEventListener('input', async (e) => {
-   await add_files(e.target.id, e.files);
+   const elem = e.target;
+   await add_files(elem.id, elem.files);
 });
 e_add_files.addEventListener('input', async (e) => {
-   await add_files(e.target.id, e.files);
+   const elem = e.target;
+   await add_files(elem.id, elem.files);
 });
 function ms_per_slide() {
    // If we don't have a (reasonable) minimum, we can easily freeze the browser.
@@ -559,24 +589,27 @@ e_sec_per_slide.addEventListener('input', () => {
       G.next_slide_time = new_next_slide_time;
       G.recalc_slide_timer();
    }
-
-   set_url_list(G.url_list); // Refresh estimated runtime.
+   rebuild_index(); // Refresh estimated runtime.
 });
 
 function apply_order_seed() {
    const hash_by_slide_desc = new Map();
-   G.url_list.forEach(slide_desc => {
+
+   url_list = G.url_list.slice();
+   url_list.forEach(slide_desc => {
       const key = slide_desc.name + e_order_seed.value;
       const hash = fnv1a_32_hex(key);
       hash_by_slide_desc.set(slide_desc, hash);
    });
-   G.url_list.sort((a, b) => {
+   url_list.sort((a, b) => {
       a = hash_by_slide_desc.get(a);
       b = hash_by_slide_desc.get(b);
       return a.localeCompare(b);
    });
+
    hash_by_slide_desc.clear();
-   set_url_list(G.url_list); // No op, but refreshes display.
+
+   set_url_list(url_list);
 }
 
 e_order_seed.addEventListener('input', apply_order_seed);
@@ -626,6 +659,83 @@ setTimeout(() => {
 
 // -
 
+/**
+ * @param {FileSystemFileEntry} fsfe
+ */
+async function promise_file_from_fsfe(fsfe) {
+   if (!(fsfe instanceof FileSystemFileEntry)) throw fsfe
+   return await new Promise(go => {
+      fsfe.file(f => go(f));
+   });
+}
+/**
+ * @param {FileSystemDirectoryEntry} fsde
+ */
+async function promise_entries_from_fsde(fsde) {
+   if (!(fsde instanceof FileSystemDirectoryEntry)) throw fsde
+   const reader = fsde.createReader();
+   return await new Promise(go => {
+      reader.readEntries(entries => go(entries));
+   });
+}
+
+
+function manual_promise() {
+   let res, rej;
+   let p = new Promise((res2,rej2) => {
+      [res, rej] = [res2, rej2];
+   });
+   p.resolve = res;
+   p.reject = res;
+   return p;
+}
+
+function Interrupt() {
+   const private = {};
+
+   this.signal = () => {
+      if (private.promise) {
+         private.promise.resolve();
+      }
+      private.promise = manual_promise();
+   };
+
+   this.async_wait = async () => {
+      await private.promise;
+   };
+
+   this.signal();
+}
+
+function PromiseQueue() {
+   const pending_promises = new Set();
+   const result_vals = [];
+   const interrupt = new Interrupt();
+
+   this.async_pop = async () => {
+      while (!result_vals.length) {
+         if (!pending_promises.size) {
+            // Nothing else is coming...
+            return undefined;
+         }
+         await interrupt.async_wait();
+      }
+      return result_vals.shift();
+   };
+
+   this.push = async p => {
+      pending_promises.add(p);
+      const ret = await p;
+      if (ret === undefined) throw 'Returning undefined causes pop() to be ambiguous.';
+      result_vals.push(ret);
+      pending_promises.delete(p);
+      interrupt.signal();
+      return ret;
+   };
+}
+
+// -
+
 // https://developer.mozilla.org/en-US/docs/Web/API/HTML_Drag_and_Drop_API/Drag_operations#performing_a_drop
 function allow_drop(e, on_enter=false) {
    e.preventDefault(); // Always prevent, so that bad drag-and-drop doesn't navigate away instead.
@@ -646,6 +756,7 @@ function allow_drop(e, on_enter=false) {
    dt.dropEffect = 'link';
    return true;
 }
+
 const DRAG_TARGET = document.documentElement;
 DRAG_TARGET.addEventListener('dragenter', e => {
    e_drop_overlay.hidden = false;
@@ -657,17 +768,46 @@ DRAG_TARGET.addEventListener('dragenter', e => {
       e_drop_overlay.style.borderColor = '#f00';
    }
 });
+
+DRAG_TARGET.addEventListener('dragover', allow_drop);
+
 DRAG_TARGET.addEventListener('dragleave', e => {
    e_drop_overlay.hidden = true;
 });
-DRAG_TARGET.addEventListener('dragover', allow_drop);
-DRAG_TARGET.addEventListener('drop', e => {
+
+DRAG_TARGET.addEventListener('drop', async e => {
    e_drop_overlay.hidden = true;
    const dt = e.dataTransfer;
    e.preventDefault();
-   const files = dt.files;
    console.log(`dropping`, dt.files, dt.items[0], dt.types);
-   add_files('drop', files);
+
+   const initial_fse_list = [].map.call(dt.items, item => item.webkitGetAsEntry());
+
+   const fse_list_queue = new PromiseQueue();
+   fse_list_queue.push(call(async () => initial_fse_list));
+   const f_queue = new PromiseQueue();
+
+   while (true) {
+      const fse_list = await fse_list_queue.async_pop();
+      if (!fse_list) break;
+      console.log(fse_list);
+      for (const fse of fse_list) {
+         if (fse instanceof FileSystemFileEntry) {
+            f_queue.push(promise_file_from_fsfe(fse));
+            continue;
+         }
+         fse_list_queue.push(promise_entries_from_fsde(fse));
+      }
+   }
+
+   const f_list = [];
+   while (true) {
+      const f = await f_queue.async_pop();
+      if (!f) break;
+      f_list.push(f);
+   }
+
+   add_files('drop', f_list);
 });
       </script>
    </body>
