@@ -61,6 +61,26 @@ body {
 #e_slides_links {
    -background-color: #555;
 }
+#e_drop_overlay {
+   pointer-events: none;
+   position: fixed;
+   top: 0;
+   left: 0;
+   right: 0;
+   bottom: 0;
+   background-color: #4f43;
+   border: inset 1em #4f4a;
+   animation: 0.5s ease 0s infinite alternate pulse-opacity;
+}
+
+@keyframes pulse-opacity {
+   from {
+      opacity: 0.3;
+   }
+   to {
+      opacity: 0.7;
+   }
+}
       </style>
       <div id=e_display></div>
       <div id=e_status></div>
@@ -86,6 +106,7 @@ body {
            <li>e-g-slide-2.mp4
          </ol>
       </div>
+      <div id=e_drop_overlay hidden></div>
       <script>
 
 async function file_as_text(file) {
@@ -205,7 +226,7 @@ const MEDIA_TYPE_BY_FILE_EXT = {
 
 function ext_from_url(url) {
    const last_ext = url.match(/\.[^\.]+$/)[0];
-   return last_ext;
+   return last_ext.toLowerCase();
 }
 
 async function after_reflow(fn) {
@@ -500,22 +521,31 @@ e_list_file.addEventListener('input', async () => {
    set_slide(1);
 });
 
-async function add_files(elem) {
-   const files = elem.files;
+async function add_files(src_info, files) {
    if (!files.length) return;
 
+   let added = 0;
    for (const f of files) {
-      console.log('add file from', elem.id, f, f.name);
+      console.log('add file from', src_info, f, f.name);
       const url = URL.createObjectURL(f);
-      const slide_desc = new SlideDesc(f.name, url);
-      G.url_list.push(slide_desc);
+      try {
+         const slide_desc = new SlideDesc(f.name, url);
+         G.url_list.push(slide_desc);
+         added += 1;
+      } catch (e) {
+         console.warn(`Error adding ${f.name}:`, f, e);
+      }
    }
+   show_status(`Added ${added} files.`);
    set_url_list(G.url_list); // No op, but refreshes display.
 }
 
-e_add_dirs.addEventListener('input', async () => await add_files(e_add_dirs));
-e_add_files.addEventListener('input', async () => await add_files(e_add_files));
-
+e_add_dirs.addEventListener('input', async (e) => {
+   await add_files(e.target.id, e.files);
+});
+e_add_files.addEventListener('input', async (e) => {
+   await add_files(e.target.id, e.files);
+});
 function ms_per_slide() {
    // If we don't have a (reasonable) minimum, we can easily freeze the browser.
    e_sec_per_slide.value = Math.max(1, e_sec_per_slide.value);
@@ -568,14 +598,23 @@ e_clear.addEventListener('click', () => {
 
 // -
 
+let recently_focused = false;
+
 async function toggle_fullscreen() {
    if (document.fullscreenElement) {
       return await document.exitFullscreen();
    }
-
-   return await document.documentElement.requestFullscreen({navigationUI: 'hide'});
+   return await document.body.requestFullscreen({navigationUI: 'hide'});
 }
-e_display.addEventListener('click', toggle_fullscreen);
+e_display.addEventListener('click', async () => {
+   if (recently_focused) return;
+   await toggle_fullscreen();
+});
+document.addEventListener('focus', async () => {
+   recently_focused = true;
+   await new Promise(go => setTimeout(go, 200));
+   recently_focused = false;
+});
 
 // -
 
@@ -585,6 +624,51 @@ setTimeout(() => {
    e_controls.style.top = '100vh';
 }, 0);
 
+// -
+
+// https://developer.mozilla.org/en-US/docs/Web/API/HTML_Drag_and_Drop_API/Drag_operations#performing_a_drop
+function allow_drop(e, on_enter=false) {
+   e.preventDefault(); // Always prevent, so that bad drag-and-drop doesn't navigate away instead.
+   const dt = e.dataTransfer;
+   let acceptable = [
+      'Files', // MDN docs are out of date and don't even mention this.
+      //'application/x-moz-file',
+      //'text/uri-list',
+   ];
+   acceptable = acceptable.filter(x => dt.types.includes(x));
+   if (!acceptable.length) {
+      dt.dropEffect = 'none';
+      if (on_enter) {
+         console.warn(`Preventing drop of types:`, dt.types);
+      }
+      return false;
+   }
+   dt.dropEffect = 'link';
+   return true;
+}
+const DRAG_TARGET = document.documentElement;
+DRAG_TARGET.addEventListener('dragenter', e => {
+   e_drop_overlay.hidden = false;
+   if (allow_drop(e, true)) {
+      e_drop_overlay.style.backgroundColor = '#0f04';
+      e_drop_overlay.style.borderColor = '#0f0';
+   } else {
+      e_drop_overlay.style.backgroundColor = '#f004';
+      e_drop_overlay.style.borderColor = '#f00';
+   }
+});
+DRAG_TARGET.addEventListener('dragleave', e => {
+   e_drop_overlay.hidden = true;
+});
+DRAG_TARGET.addEventListener('dragover', allow_drop);
+DRAG_TARGET.addEventListener('drop', e => {
+   e_drop_overlay.hidden = true;
+   const dt = e.dataTransfer;
+   e.preventDefault();
+   const files = dt.files;
+   console.log(`dropping`, dt.files, dt.items[0], dt.types);
+   add_files('drop', files);
+});
       </script>
    </body>
 </html>
