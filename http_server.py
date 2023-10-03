@@ -26,17 +26,29 @@ if __name__ == '__main__':
     import argparse
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--bind', '-b', default='localhost', metavar='ADDRESS',
-                        help='Specify alternate bind address '
-                             '[default: localhost - pass \'\' if you want to serve remote clients]')
-    parser.add_argument('--directory', '-d', default=os.getcwd(),
+    parser.add_argument('--bind', default='localhost', metavar='ADDRESS',
+                        help='Specify alternate bind address (or `all`)'
+                             '[default: localhost]')
+    parser.add_argument('--directory', default=os.getcwd(),
                         help='Specify alternative directory '
                         '[default:current directory]')
+    parser.add_argument('--public', action='store_true',
+                        help='Serve to your whole network [default: false]')
     parser.add_argument('port', action='store',
                         default=8000, type=int,
                         nargs='?',
                         help='Specify alternate port [default: 8000]')
     args = parser.parse_args()
+
+    # -
+
+    if args.public:
+        args.bind = 'all'
+
+    if args.bind == 'all':
+        args.bind = ''
+
+    # -
 
     handler_class = partial(NoCacheRequestHandler, directory=args.directory)
 
