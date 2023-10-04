@@ -679,12 +679,12 @@ async function promise_entries_from_fsde(fsde) {
 
 
 function manual_promise() {
-   let res, rej;
-   let p = new Promise((res2,rej2) => {
-      [res, rej] = [res2, rej2];
+   let res, err;
+   let p = new Promise((res2,err2) => {
+      [res, err] = [res2, err2];
    });
    p.resolve = res;
-   p.reject = res;
+   p.reject = err;
    return p;
 }
 
