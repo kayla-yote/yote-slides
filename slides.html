@@ -97,6 +97,8 @@ body {
          <hr>
          Seconds per slide:<input id=e_sec_per_slide type=number value=12 min=1 size=5>
          <hr>
+         Video max duration:<input id=e_max_sec_per_video type=number placeholder=600 size=10>
+         <hr>
          <span id=e_slides_info>0 slides loaded</span>
          <br>
          <input id=e_clear type=button value=Clear>
@@ -229,6 +231,8 @@ const MEDIA_TYPE_BY_FILE_EXT = {
    '.jpg': 'img',
    '.mp4': 'video',
    '.png': 'img',
+   '.webm': 'video',
+   '.webp': 'img',
 };
 
 function ext_from_url(url) {
@@ -296,6 +300,15 @@ async function set_slide(id) {
          continue;
       }
       elem.title = status;
+
+      // Extend video slide time.
+      if (elem.duration) {
+         const video_ms = (elem.duration || 0) * 1000;
+         if (video_ms > ms_per_slide()) {
+            const ms = Math.min(video_ms, max_ms_per_video());
+            reset_next_slide_time(ms);
+         }
+      }
       break;
    }
    if (!elem) {
@@ -506,10 +519,18 @@ e_note.style.opacity = 0;
 
 (async () => {
    const list_url = DEFAULT_LIST_URL;
-   const res = await fetch(list_url);
-   if (!res.ok) {
-      console.warn(`Initial list not found at '${DEFAULT_LIST_URL}'.`);
-   } else {
+
+   let res;
+   try {
+      res = await fetch(list_url);
+      if (!res.ok) {
+         console.warn(`Initial list not found at '${DEFAULT_LIST_URL}'.`);
+      }
+      res = null;
+   } catch (e) {
+      console.warn(`Fetch failed for '${DEFAULT_LIST_URL}':`, e);
+   }
+   if (res) {
       const text = await res.text();
       const url_list = parse_url_list(list_url, text);
       set_url_list(url_list);
@@ -576,12 +597,26 @@ e_add_files.addEventListener('input', async (e) => {
    const elem = e.target;
    await add_files(elem.id, elem.files);
 });
+
+// -
+
 function ms_per_slide() {
    // If we don't have a (reasonable) minimum, we can easily freeze the browser.
    e_sec_per_slide.value = Math.max(1, e_sec_per_slide.value);
    const ms = e_sec_per_slide.value * 1000;
    return ms;
 }
+
+function max_ms_per_video() {
+   let ms = e_max_sec_per_video.value * 1000;
+   if (!ms) {
+      ms = +1/0; // +Inf
+   }
+   ms = Math.max(ms, ms_per_slide());
+   return ms;
+}
+
+// -
 
 e_sec_per_slide.addEventListener('input', () => {
    const new_next_slide_time = performance.now() + ms_per_slide();
