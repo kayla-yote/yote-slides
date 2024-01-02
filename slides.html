@@ -153,14 +153,22 @@ function add_child_tag(parent, tag) {
 // -
 
 async function wake_forever(refresh_every_n_seconds = 10) {
+   let lock = null;
    while (true) {
-      try {
-         const lock = await navigator.wakeLock.request();
-         await new Promise(go => {
-            setTimeout(go, refresh_every_n_seconds*1000);
-         });
+      await new Promise(go => {
+         setTimeout(go, refresh_every_n_seconds*1000);
+      });
+      //console.log('[wake_forever] refreshing...');
+      if (lock) {
          await lock.release();
-      } catch (e) {}
+         lock = null;
+      }
+      try {
+         lock = await navigator.wakeLock.request();
+      } catch (e) {
+         // Usually just 'DOMException: The requesting document is hidden.'.
+         //console.warn('wakeLock.request() failed:', e);
+      }
    }
 }
 wake_forever();
@@ -268,7 +276,12 @@ async function set_slide(id) {
    // -
 
    let elem;
-   while (G.url_list.length) {
+   for (let i = 0; ; i++) {
+      if (!G.url_list.length) break;
+      if (i == 1000*1000) {
+         console.error('Failed to find a useable next slide in', G.url_list.slice());
+      }
+
       const prev_slide_desc = G.url_list[G.slide_id-1];
       if (prev_slide_desc) {
          prev_slide_desc.li.classList.remove('index-cur-slide');
@@ -306,6 +319,7 @@ async function set_slide(id) {
          const video_ms = (elem.duration || 0) * 1000;
          if (video_ms > ms_per_slide()) {
             const ms = Math.min(video_ms, max_ms_per_video());
+            console.log(`duration: ${video_ms}ms -> ${ms}ms`);
             reset_next_slide_time(ms);
          }
       }
