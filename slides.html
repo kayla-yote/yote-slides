@@ -254,6 +254,28 @@ async function after_reflow(fn) {
    return await fn();
 }
 
+// Credit to Alex: https://stackoverflow.com/a/74214760
+async function info_from_gif_blob(blob) {
+   if (blob.type != 'image/gif') {
+      console.warning(`info_from_gif_blob({type: ${blob.type}}) but expected type: image/gif.`);
+   }
+   const bytes = await blob.arrayBuffer();
+   const arr = new Uint8Array(bytes);
+   let duration = 0;
+   for (var i = 0; i < arr.length; i++) {
+      if (arr[i] == 0x21
+         && arr[i + 1] == 0xF9
+         && arr[i + 2] == 0x04
+         && arr[i + 7] == 0x00) {
+         const delay = (arr[i + 5] << 8) | (arr[i + 4] & 0xFF);
+         duration += delay < 2 ? 10 : delay;
+      }
+   }
+   return {
+      seconds: duration / 100,
+   };
+}
+
 function set_slide_by_desc(slide_desc) {
    const i = G.url_list.indexOf(slide_desc);
    if (i == -1) throw slide_desc;
@@ -315,11 +337,25 @@ async function set_slide(id) {
       elem.title = status;
 
       // Extend video slide time.
+      if (slide_desc.name.endsWith('.gif')) {
+         const res = await fetch(elem.src);
+         const blob = await res.blob();
+         let info;
+         try {
+            info = await info_from_gif_blob(blob);
+         } catch (e) {
+            console.warn(`info_from_gif_blob(${slide_desc.name}) failed:`, e);
+         }
+         if (info) {
+            console.log(`info_from_gif_blob(${slide_desc.name}) ->`, info);
+            elem.duration = info.seconds;
+         }
+      }
       if (elem.duration) {
          const video_ms = (elem.duration || 0) * 1000;
          if (video_ms > ms_per_slide()) {
             const ms = Math.min(video_ms, max_ms_per_video());
-            console.log(`duration: ${video_ms}ms -> ${ms}ms`);
+            console.log(`duration: ${video_ms/1000}s -> ${ms/1000}s`);
             reset_next_slide_time(ms);
          }
       }
